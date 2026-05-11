@@ -5,7 +5,7 @@ import time
 import threading
 
 import sound
-from upgrades import ALL_UPGRADES, UPGRADE_MAP, upgrade_cost
+from upgrades import UPGRADE_MAP, upgrade_cost
 
 SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save.json")
 
@@ -91,6 +91,10 @@ class GameState:
         # Hot streak (slot_intuition)
         self.hot_until: float = 0.0
 
+        # Save tracking: increments on clicks + passive ticks, triggers save at 30
+        self._change_count: int = 0
+        self._save_now: bool = False  # set True when spin resolves or upgrade bought
+
         self._last_tick: float = time.time()
         self._lock = threading.Lock()
 
@@ -139,6 +143,7 @@ class GameState:
             self.last_click_time = now
             self.balance += self.click_value()
             self.total_clicks += 1
+            self._change_count += 1
         sound.play_click()
 
     def can_spin(self) -> bool:
@@ -177,6 +182,7 @@ class GameState:
             rate = self.passive_rate()
             if rate > 0:
                 self.balance += rate * dt
+                self._change_count += 1
 
             # Loan repayment at $500/s
             if self.loan_active and self.loan_debt > 0:
@@ -204,6 +210,7 @@ class GameState:
                     self.spin.active = False
                     self.last_symbols = list(self.spin.result)
                     sounds.extend(self._resolve_spin())
+                    self._save_now = True
 
             # Hot streak random activation
             if self.level("slot_intuition") and now >= self.hot_until:
@@ -280,6 +287,7 @@ class GameState:
                 self.loan_active = True
                 self.loan_debt = 25_000.0
         sound.play_upgrade()
+        self._save_now = True
         return True
 
     def activate_ability(self, uid: str) -> bool:

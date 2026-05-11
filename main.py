@@ -1,8 +1,10 @@
+import os
+import select
 import sys
+import termios
 import time
-import threading
+import tty
 
-import readchar
 from rich.live import Live
 
 import ui
@@ -11,79 +13,89 @@ from upgrades import ALL_UPGRADES
 from ui import get_selected_upgrade_id
 
 
-def input_loop(state: GameState, stop: threading.Event) -> None:
-    while not stop.is_set():
-        try:
-            key = readchar.readkey()
-        except Exception:
-            stop.set()
-            break
+def _read_key() -> str | None:
+    """Non-blocking read. Terminal must already be in raw mode."""
+    if not select.select([sys.stdin], [], [], 0)[0]:
+        return None
+    ch = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="ignore")
+    if ch == "\x1b":
+        if select.select([sys.stdin], [], [], 0.05)[0]:
+            ch2 = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="ignore")
+            if ch2 == "[" and select.select([sys.stdin], [], [], 0.05)[0]:
+                ch3 = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="ignore")
+                return "\x1b[" + ch3
+            return ch2
+    return ch
 
-        if key in (readchar.key.CTRL_C, "q", "Q"):
-            stop.set()
-            break
 
-        elif key == " ":
-            state.do_click()
+def _handle_key(key: str, state: GameState) -> bool:
+    """Returns True if the game should quit."""
+    if key in ("\x03", "\x04", "q", "Q"):
+        return True
 
-        elif key in (readchar.key.ENTER, "\r", "\n"):
-            if state.show_upgrades:
-                uid = get_selected_upgrade_id(state)
-                if uid:
-                    state.buy_upgrade(uid)
-            else:
-                state.start_spin()
+    if key == " ":
+        state.do_click()
+    elif key in ("\r", "\n"):
+        if state.show_upgrades:
+            uid = get_selected_upgrade_id(state)
+            if uid:
+                state.buy_upgrade(uid)
+        else:
+            state.start_spin()
+    elif key in ("\x1b[A", "k"):  # up arrow or k
+        if state.show_upgrades:
+            state.upgrade_cursor = max(0, state.upgrade_cursor - 1)
+        else:
+            state.adjust_bet(1)
+    elif key in ("\x1b[B", "j"):  # down arrow or j
+        if state.show_upgrades:
+            state.upgrade_cursor = min(len(ALL_UPGRADES) - 1, state.upgrade_cursor + 1)
+        else:
+            state.adjust_bet(-1)
+    elif key in ("u", "U"):
+        state.show_upgrades = not state.show_upgrades
+    elif key == "1":
+        state.activate_ability("caffeine_rush")
+    elif key == "2":
+        state.activate_ability("time_warp")
 
-        elif key == readchar.key.UP:
-            if state.show_upgrades:
-                state.upgrade_cursor = max(0, state.upgrade_cursor - 1)
-            else:
-                state.adjust_bet(1)
-
-        elif key == readchar.key.DOWN:
-            if state.show_upgrades:
-                state.upgrade_cursor = min(len(ALL_UPGRADES) - 1, state.upgrade_cursor + 1)
-            else:
-                state.adjust_bet(-1)
-
-        elif key in ("u", "U"):
-            state.show_upgrades = not state.show_upgrades
-
-        elif key == "1":
-            state.activate_ability("caffeine_rush")
-
-        elif key == "2":
-            state.activate_ability("time_warp")
+    return False
 
 
 def main() -> None:
     state = GameState.load()
-    stop = threading.Event()
 
-    thread = threading.Thread(target=input_loop, args=(state, stop), daemon=True)
-    thread.start()
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    tty.setraw(fd)
 
-    last_save = time.time()
     frame_time = 1.0 / 60.0
 
-    with Live(ui.render(state), refresh_per_second=60, screen=True) as live:
-        while not stop.is_set():
-            frame_start = time.time()
-            state.tick()
-            live.update(ui.render(state))
+    try:
+        with Live(ui.render(state), refresh_per_second=60, screen=True) as live:
+            while True:
+                frame_start = time.time()
 
-            now = time.time()
-            if now - last_save >= 5.0:
-                state.save()
-                last_save = now
+                key = _read_key()
+                if key and _handle_key(key, state):
+                    break
 
-            elapsed = time.time() - frame_start
-            sleep = frame_time - elapsed
-            if sleep > 0:
-                time.sleep(sleep)
+                state.tick()
+                live.update(ui.render(state))
+
+                if state._save_now or state._change_count >= 30:
+                    state.save()
+                    state._change_count = 0
+                    state._save_now = False
+
+                elapsed = time.time() - frame_start
+                remaining = frame_time - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     state.save()
-    sys.exit(0)
 
 
 if __name__ == "__main__":
