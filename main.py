@@ -136,4 +136,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "restart":
+        if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "save.json")):
+            os.remove(os.path.join(os.path.dirname(os.path.abspath(__file__)), "save.json"))
+            print("Save deleted. Starting fresh.")
+        else:
+            print("No save found. Starting fresh.")
     main()
