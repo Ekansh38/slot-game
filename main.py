@@ -9,7 +9,7 @@ from rich.live import Live
 import ui
 from game import GameState
 from upgrades import ALL_UPGRADES
-from ui import get_selected_upgrade_id
+from ui import get_selected_upgrade_id, UPGRADES_PER_PAGE
 
 
 def _read_key() -> str | None:
@@ -41,14 +41,22 @@ def _handle_key(key: str, state: GameState) -> bool:
                 state.buy_upgrade(uid)
         else:
             state.start_spin()
+    elif key == "\x1b":  # bare ESC — close shop, or quit if shop already closed
+        if state.show_upgrades:
+            state.show_upgrades = False
+        else:
+            return True
     elif key in ("\x1b[A", "k"):  # up arrow or k
         if state.show_upgrades:
             state.upgrade_cursor = max(0, state.upgrade_cursor - 1)
+            state.upgrade_scroll = min(state.upgrade_scroll, state.upgrade_cursor)
         else:
             state.adjust_bet(1)
     elif key in ("\x1b[B", "j"):  # down arrow or j
         if state.show_upgrades:
             state.upgrade_cursor = min(len(ALL_UPGRADES) - 1, state.upgrade_cursor + 1)
+            if state.upgrade_cursor >= state.upgrade_scroll + UPGRADES_PER_PAGE:
+                state.upgrade_scroll = state.upgrade_cursor - UPGRADES_PER_PAGE + 1
         else:
             state.adjust_bet(-1)
     elif key in ("u", "U"):

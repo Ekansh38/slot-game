@@ -87,6 +87,7 @@ class GameState:
         # UI state
         self.show_upgrades: bool = False
         self.upgrade_cursor: int = 0
+        self.upgrade_scroll: int = 0
 
         # Hot streak (slot_intuition)
         self.hot_until: float = 0.0

@@ -11,6 +11,8 @@ from rich.text import Text
 from game import SYMBOLS, GameState
 from upgrades import ALL_UPGRADES, upgrade_cost
 
+UPGRADES_PER_PAGE = 6
+
 
 # ---------------------------------------------------------------------------
 # Number formatting
@@ -35,17 +37,11 @@ def fmt(n: float) -> str:
     return f"${n:,.0f}"
 
 
-def fmt_plain(n: float) -> str:
-    """Like fmt but no dollar sign, for use inside existing labels."""
-    return fmt(n).lstrip("$")
-
-
 # ---------------------------------------------------------------------------
 # Reel helpers
 # ---------------------------------------------------------------------------
 
 def _reel_symbols(state: GameState, idx: int) -> tuple[str, str, str]:
-    """Returns (top, mid, bot) symbols for reel idx."""
     def neighbors(sym: str) -> tuple[str, str, str]:
         i = SYMBOLS.index(sym)
         return SYMBOLS[(i - 1) % len(SYMBOLS)], sym, SYMBOLS[(i + 1) % len(SYMBOLS)]
@@ -65,11 +61,9 @@ def _reel_symbols(state: GameState, idx: int) -> tuple[str, str, str]:
     return neighbors(state.last_symbols[idx])
 
 
-def _sym_style(_sym: str, is_payline: bool, result: str, spin_active: bool) -> str:
-    if not is_payline:
-        return "dim white"
+def _payline_style(result: str, spin_active: bool) -> str:
     if spin_active:
-        return "bold bright_white"
+        return "bold white"
     if result == "jackpot":
         return "bold bright_magenta"
     if result == "big_win":
@@ -89,13 +83,15 @@ def _render_reels(state: GameState) -> Table:
     t.add_column(justify="center", min_width=1, no_wrap=True)
     t.add_column(justify="center", min_width=5, no_wrap=True)
 
-    sep = Text("│", style="dim white")
+    sep = Text("│", style="white")
+    mid_style = _payline_style(state.last_result, state.spin.active)
+
     tops, mids, bots = [], [], []
     for i in range(3):
         top, mid, bot = _reel_symbols(state, i)
-        tops.append(Text(top, style="dim white", justify="center"))
-        mids.append(Text(mid, style=_sym_style(mid, True, state.last_result, state.spin.active), justify="center"))
-        bots.append(Text(bot, style="dim white", justify="center"))
+        tops.append(Text(top, style="bright_black", justify="center"))
+        mids.append(Text(mid, style=mid_style, justify="center"))
+        bots.append(Text(bot, style="bright_black", justify="center"))
 
     t.add_row(tops[0], sep, tops[1], sep, tops[2])
     t.add_row(mids[0], sep, mids[1], sep, mids[2])
@@ -115,14 +111,22 @@ def _render_clicker(state: GameState) -> Panel:
     warp_active = now < state.time_warp_end
 
     t = Table(show_header=False, box=None, padding=(0, 1), expand=True)
-    t.add_column(style="dim white", no_wrap=True)
-    t.add_column(style="bright_white", no_wrap=True)
+    t.add_column(style="white", no_wrap=True)
+    t.add_column(style="bold bright_white", no_wrap=True)
 
     t.add_row("Click value:", fmt(cv))
-    t.add_row("Per second:", f"{fmt(pr)}/s" if pr > 0 else "0/s")
+    t.add_row("Per second:", f"{fmt(pr)}/s" if pr > 0 else "$0/s")
 
+    combo_lv = state.level("click_combo")
     if state.combo_count > 1:
-        t.add_row("Combo:", Text(f"x{state.combo_count}", style="bold yellow"))
+        if combo_lv > 0:
+            multiplier = min(1.0 + state.combo_count * 0.1 * combo_lv, 5.0)
+            t.add_row(
+                "Combo:",
+                Text(f"x{state.combo_count}  ({multiplier:.1f}x value)", style="bold yellow"),
+            )
+        else:
+            t.add_row("Combo:", Text(f"x{state.combo_count}  (buy Click Combo to boost)", style="yellow"))
 
     if state.loan_active:
         t.add_row("Loan debt:", Text(fmt(state.loan_debt), style="bold red"))
@@ -138,9 +142,9 @@ def _render_clicker(state: GameState) -> Panel:
             abilities.append(Text(f"[1] Caffeine Rush  {rem:.0f}s left", style="bold bright_yellow"))
         elif now < state.caffeine_cd:
             cd = state.caffeine_cd - now
-            abilities.append(Text(f"[1] Caffeine Rush  CD {cd:.0f}s", style="dim"))
+            abilities.append(Text(f"[1] Caffeine Rush  cooldown {cd:.0f}s", style="white"))
         else:
-            abilities.append(Text("[1] Caffeine Rush  READY", style="green"))
+            abilities.append(Text("[1] Caffeine Rush  READY", style="bright_green"))
 
     if state.level("time_warp") > 0:
         if warp_active:
@@ -148,11 +152,11 @@ def _render_clicker(state: GameState) -> Panel:
             abilities.append(Text(f"[2] Time Warp  {rem:.0f}s left", style="bold bright_cyan"))
         elif now < state.time_warp_cd:
             cd = state.time_warp_cd - now
-            abilities.append(Text(f"[2] Time Warp  CD {cd:.0f}s", style="dim"))
+            abilities.append(Text(f"[2] Time Warp  cooldown {cd:.0f}s", style="white"))
         else:
-            abilities.append(Text("[2] Time Warp  READY", style="cyan"))
+            abilities.append(Text("[2] Time Warp  READY", style="bright_cyan"))
 
-    controls = Text("\n[SPACE] Click\n[U] Upgrades\n[Q] Quit", style="dim white")
+    controls = Text("\n[SPACE] Click\n[U]     Upgrades\n[Q/ESC] Quit", style="white")
 
     content: list[Any] = [t]
     if abilities:
@@ -162,24 +166,33 @@ def _render_clicker(state: GameState) -> Panel:
     content.append(controls)
 
     title = Text("CLICKER", style="bold bright_white")
-    return Panel(Group(*content), title=title, border_style="bright_black", padding=(1, 2))
+    return Panel(Group(*content), title=title, border_style="white", padding=(1, 2))
 
 
 def _render_upgrades(state: GameState) -> Panel:
     rows: list[Any] = []
 
-    for i, defn in enumerate(ALL_UPGRADES):
+    scroll = state.upgrade_scroll
+    visible = ALL_UPGRADES[scroll : scroll + UPGRADES_PER_PAGE]
+
+    if scroll > 0:
+        rows.append(Text(f"  ... {scroll} more above", style="bright_black"))
+        rows.append(Text(""))
+
+    for i, defn in enumerate(visible):
+        i = i + scroll  # absolute index
         cur = state.level(defn.id)
         maxed = cur >= defn.max_levels
         cost = upgrade_cost(defn.id, cur) if not maxed else 0.0
         affordable = state.balance >= cost and not maxed
+        selected = i == state.upgrade_cursor
 
-        cursor = "> " if i == state.upgrade_cursor else "  "
+        cursor_str = "> " if selected else "  "
 
         if maxed:
-            name_style = "dim"
+            name_style = "bright_black"
             cost_str = "MAXED"
-            cost_style = "dim"
+            cost_style = "bright_black"
         elif affordable:
             name_style = "bold bright_white"
             cost_str = fmt(cost)
@@ -187,29 +200,34 @@ def _render_upgrades(state: GameState) -> Panel:
         else:
             name_style = "white"
             cost_str = fmt(cost)
-            cost_style = "red"
+            cost_style = "bright_red"
 
         label = Text()
-        label.append(cursor, style="bright_yellow" if i == state.upgrade_cursor else "dim")
-        label.append(f"{defn.name}", style=name_style)
+        label.append(cursor_str, style="bright_yellow" if selected else "bright_black")
+        label.append(defn.name, style=name_style)
         if cur > 0:
-            label.append(f"  Lv{cur}", style="dim cyan")
+            label.append(f"  Lv{cur}", style="cyan")
         if defn.is_active:
-            label.append(" [A]", style="dim yellow")
+            label.append(" [active]", style="yellow")
 
-        desc_text = Text(f"   {defn.description}", style="dim white")
-        cost_text = Text(f"   Cost: ", style="dim") + Text(cost_str, style=cost_style)
+        desc_text = Text(f"   {defn.description}", style="white")
+        cost_text = Text("   Cost: ", style="white") + Text(cost_str, style=cost_style)
 
         rows.append(label)
         rows.append(desc_text)
         rows.append(cost_text)
         rows.append(Text(""))
 
-    controls = Text("[↑/↓] Navigate   [ENTER] Buy   [U] Close", style="dim white")
+    remaining = len(ALL_UPGRADES) - scroll - len(visible)
+    if remaining > 0:
+        rows.append(Text(f"  ... {remaining} more below", style="bright_black"))
+        rows.append(Text(""))
+
+    controls = Text("[j/k] Navigate   [ENTER] Buy   [U/ESC] Close", style="white")
     rows.append(controls)
 
     title = Text("UPGRADES", style="bold bright_white")
-    return Panel(Group(*rows), title=title, border_style="bright_black", padding=(1, 2))
+    return Panel(Group(*rows), title=title, border_style="white", padding=(1, 2))
 
 
 # ---------------------------------------------------------------------------
@@ -222,50 +240,44 @@ def _render_slots(state: GameState) -> Panel:
 
     reels = _render_reels(state)
 
-    # Result line
     result_text = Text()
     if state.last_result == "jackpot":
-        result_text.append("  JACKPOT!!! ", style="bold bright_magenta blink")
+        result_text.append("  JACKPOT!!!  ", style="bold bright_magenta")
         result_text.append(fmt(state.last_win), style="bold bright_magenta")
     elif state.last_result == "big_win":
-        result_text.append("  BIG WIN!  ", style="bold bright_cyan")
+        result_text.append("  BIG WIN!   ", style="bold bright_cyan")
         result_text.append(fmt(state.last_win), style="bold bright_cyan")
     elif state.last_result == "win":
-        result_text.append("  Won ", style="bold bright_green")
+        result_text.append("  Won  ", style="bold bright_green")
         result_text.append(fmt(state.last_win), style="bold bright_green")
     elif state.last_result == "near_miss":
-        result_text.append("  So close...", style="yellow")
+        result_text.append("  So close...", style="bright_yellow")
     elif state.last_result == "loss":
-        result_text.append("  Lost ", style="dim red")
-        result_text.append(fmt(state.bet), style="dim red")
+        result_text.append("  Lost  ", style="bright_red")
+        result_text.append(fmt(state.bet), style="bright_red")
     else:
-        result_text.append("  Press ENTER to spin", style="dim white")
+        result_text.append("  Press ENTER to spin", style="white")
 
-    # Streak
     streak_text = Text()
     if state.win_streak >= 3:
-        streak_text.append(f"  STREAK x{state.win_streak}  ", style="bold bright_yellow")
+        streak_text.append(f"  STREAK x{state.win_streak}", style="bold bright_yellow")
 
-    # Hot indicator
     hot_text = Text()
     if is_hot:
-        hot_text.append("  *** RUNNING HOT ***", style="bold bright_red blink")
+        hot_text.append("  *** RUNNING HOT ***", style="bold bright_red")
 
-    # Bet
     bet_can_afford = state.balance >= state.bet
-    bet_style = "bold bright_white" if bet_can_afford else "bold red"
     bet_text = Text()
-    bet_text.append("  Bet: ", style="dim white")
-    bet_text.append(fmt(state.bet), style=bet_style)
-    bet_text.append("   [↑/↓] adjust", style="dim white")
+    bet_text.append("  Bet: ", style="white")
+    bet_text.append(fmt(state.bet), style="bold bright_white" if bet_can_afford else "bold bright_red")
+    bet_text.append("   [j/k] or [↑/↓] adjust", style="white")
 
-    # Spin hint
     if state.spin.active:
-        spin_hint = Text("  Spinning...", style="dim white")
+        spin_hint = Text("  Spinning...", style="white")
     elif not bet_can_afford:
-        spin_hint = Text("  Not enough funds", style="dim red")
+        spin_hint = Text("  Not enough funds", style="bright_red")
     else:
-        spin_hint = Text("  [ENTER] Spin", style="dim white")
+        spin_hint = Text("  [ENTER] Spin", style="white")
 
     content = Group(
         Text(""),
@@ -281,7 +293,7 @@ def _render_slots(state: GameState) -> Panel:
         Text(""),
     )
 
-    border_style = "bright_black"
+    border_style = "white"
     if state.last_result == "jackpot" and not state.spin.active:
         border_style = "bright_magenta"
     elif state.last_result == "big_win" and not state.spin.active:
@@ -304,17 +316,17 @@ def _render_header(state: GameState) -> Panel:
     t.add_column(justify="right")
 
     bal = Text()
-    bal.append("Balance: ", style="dim white")
+    bal.append("Balance: ", style="white")
     bal.append(fmt(state.balance), style="bold bright_green")
 
     title = Text("SLOT GAME", style="bold bright_white")
 
-    streak = Text()
+    right = Text()
     if state.win_streak >= 3:
-        streak.append(f"Streak: x{state.win_streak}", style="bold yellow")
+        right.append(f"Streak x{state.win_streak}", style="bold bright_yellow")
 
-    t.add_row(bal, title, streak)
-    return Panel(t, box=box.HORIZONTALS, border_style="bright_black", padding=(0, 0))
+    t.add_row(bal, title, right)
+    return Panel(t, box=box.HORIZONTALS, border_style="white", padding=(0, 0))
 
 
 # ---------------------------------------------------------------------------
