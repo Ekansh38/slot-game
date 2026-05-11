@@ -67,12 +67,16 @@ def main() -> None:
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
-    tty.setraw(fd)
 
     frame_time = 1.0 / 60.0
 
-    try:
-        with Live(ui.render(state), refresh_per_second=60, screen=True) as live:
+    # Enter Live first so Rich initializes the screen cleanly,
+    # then switch to raw mode so our non-blocking reads work.
+    # auto_refresh=False disables Rich's internal render timer —
+    # we drive every repaint ourselves via update(refresh=True).
+    with Live(ui.render(state), auto_refresh=False, screen=True) as live:
+        tty.setraw(fd)
+        try:
             while True:
                 frame_start = time.time()
 
@@ -81,7 +85,7 @@ def main() -> None:
                     break
 
                 state.tick()
-                live.update(ui.render(state))
+                live.update(ui.render(state), refresh=True)
 
                 if state._save_now or state._change_count >= 30:
                     state.save()
@@ -92,8 +96,8 @@ def main() -> None:
                 remaining = frame_time - elapsed
                 if remaining > 0:
                     time.sleep(remaining)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     state.save()
 
