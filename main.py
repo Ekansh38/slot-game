@@ -28,13 +28,11 @@ def _read_key() -> str | None:
 
 
 def _handle_key(key: str, state: GameState) -> bool:
-    """Returns True if the game should quit."""
+    """Returns True if the game should quit. Space is handled by the main loop."""
     if key in ("\x03", "\x04", "q", "Q"):
         return True
 
-    if key == " ":
-        state.do_click()
-    elif key in ("\r", "\n"):
+    if key in ("\r", "\n"):
         if state.show_upgrades:
             uid = get_selected_upgrade_id(state)
             if uid:
@@ -61,6 +59,9 @@ def _handle_key(key: str, state: GameState) -> bool:
             state.adjust_bet(-1)
     elif key in ("u", "U"):
         state.show_upgrades = not state.show_upgrades
+    elif key in ("m", "M"):
+        if not state.show_upgrades:
+            state.toggle_all_in()
     elif key == "1":
         state.activate_ability("caffeine_rush")
     elif key == "2":
@@ -77,15 +78,14 @@ def main() -> None:
 
     frame_time = 1.0 / 60.0
 
-    # Enter Live first so Rich initializes the screen cleanly,
-    # then switch to raw mode so our non-blocking reads work.
-    # auto_refresh=False disables Rich's internal render timer —
-    # we drive every repaint ourselves via update(refresh=True).
+    # Space debounce: fire once per physical press.
+    # When space is held, the terminal keeps sending it. We track whether we've
+    # fired for the current "hold" and only reset when space stops arriving
+    # (i.e., the key was physically released — ~80ms gap in events).
+    space_fired = False
+    last_space_seen = 0.0
+
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
-        # Custom terminal mode: disable echo, canonical, and signal generation
-        # (so Ctrl-C sends \x03 as a raw char) but keep OPOST so that Rich's
-        # \n output is still converted to \r\n by the terminal driver.
-        # setraw() kills OPOST and breaks Rich's rendering entirely.
         new = termios.tcgetattr(fd)
         new[3] &= ~(termios.ECHO | termios.ICANON | termios.ISIG)
         new[6][termios.VMIN] = 1
@@ -95,8 +95,26 @@ def main() -> None:
             while True:
                 frame_start = time.time()
 
-                key = _read_key()
-                if key and _handle_key(key, state):
+                # Reset space_fired once the key hasn't arrived for 80ms —
+                # that's the "key released" signal in a terminal.
+                if space_fired and frame_start - last_space_seen > 0.08:
+                    space_fired = False
+
+                # Drain all queued keys
+                quit_requested = False
+                while True:
+                    key = _read_key()
+                    if key is None:
+                        break
+                    if key == " ":
+                        last_space_seen = time.time()
+                        if not space_fired:
+                            space_fired = True
+                            state.do_click()
+                    elif _handle_key(key, state):
+                        quit_requested = True
+                        break
+                if quit_requested:
                     break
 
                 state.tick()

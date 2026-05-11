@@ -15,9 +15,9 @@ BASE_WEIGHTS = [2, 5, 10, 15, 20]
 THREE_PAYOUTS = {"💎": 100, "7": 25, "🔔": 10, "BAR": 5, "🍒": 3}
 TWO_PAYOUTS   = {"💎": 4,   "7": 3,  "🔔": 2,  "BAR": 2, "🍒": 2}
 
-CLICK_LEVELS   = [1, 2, 5, 15, 50, 150, 500, 2_000, 10_000]
-PASSIVE_LEVELS = [0, 1, 5, 25, 100, 500, 2_500, 12_500, 75_000]
-SYNDICATE_PCT  = [0.0, 0.01, 0.03, 0.07, 0.15]
+CLICK_LEVELS   = [1, 2, 5, 15, 50, 150, 500, 2_000, 10_000, 40_000, 200_000, 1_000_000, 5_000_000]
+PASSIVE_LEVELS = [0, 1, 4, 12, 40, 150, 600, 2_500, 8_000, 30_000, 120_000, 500_000, 2_000_000]
+SYNDICATE_PCT  = [0.0, 0.01, 0.03, 0.07, 0.15, 0.30, 0.50]
 
 BET_STEPS = [
     1, 5, 10, 25, 50, 100, 250, 500,
@@ -70,6 +70,8 @@ class GameState:
         self.win_streak: int = 0
         self.last_result: str = ""
         self.last_win: float = 0.0
+        self.last_bet_placed: float = 0.0
+        self.bet_all_in: bool = False
         self.last_symbols: list[str] = ["🍒", "🍒", "🍒"]
         self.total_spins: int = 0
         self.spin = SpinState()
@@ -101,6 +103,8 @@ class GameState:
 
     @property
     def bet(self) -> float:
+        if self.bet_all_in:
+            return self.balance
         return BET_STEPS[self.bet_index]
 
     def level(self, uid: str) -> int:
@@ -124,9 +128,10 @@ class GameState:
         return base
 
     def payout_mult(self) -> float:
-        m = 1.0 + self.level("lucky_charm") * 0.2
-        if self.win_streak >= 3:
-            m *= 1.0 + (self.win_streak - 2) * 0.1
+        m = 1.0 + self.level("lucky_charm") * 0.15
+        streak_threshold = max(1, 3 - self.level("hot_hands"))
+        if self.win_streak >= streak_threshold:
+            m *= 1.0 + (self.win_streak - streak_threshold + 1) * 0.1
         return m
 
     def reel_weights(self) -> list[int]:
@@ -148,7 +153,7 @@ class GameState:
         sound.play_click()
 
     def can_spin(self) -> bool:
-        return not self.spin.active and self.balance >= self.bet
+        return not self.spin.active and self.bet > 0 and self.balance >= self.bet
 
     def start_spin(self) -> bool:
         if not self.can_spin():
@@ -225,6 +230,7 @@ class GameState:
 
     def _resolve_spin(self) -> list[str]:
         """Must be called inside self._lock. Returns sound event names."""
+        self.last_bet_placed = self.bet
         result = self.spin.result
         counts: dict[str, int] = {}
         for s in result:
@@ -250,7 +256,15 @@ class GameState:
 
         if win <= 0:
             self.win_streak = 0
-            self.last_result = "near_miss" if self.spin.near_miss else "loss"
+            if self.spin.near_miss:
+                risk_lv = self.level("risk_engine")
+                if risk_lv > 0:
+                    consolation = self.bet * 0.1 * risk_lv
+                    self.balance += consolation
+                    self.last_win = consolation
+                self.last_result = "near_miss"
+            else:
+                self.last_result = "loss"
             return ["loss"]
 
         self.win_streak += 1
@@ -266,9 +280,23 @@ class GameState:
 
     def adjust_bet(self, direction: int) -> None:
         if direction > 0:
-            self.bet_index = min(self.bet_index + 1, len(BET_STEPS) - 1)
+            if self.bet_all_in:
+                return  # already at max
+            if self.bet_index >= len(BET_STEPS) - 1:
+                self.bet_all_in = True  # go past max → all in
+            else:
+                self.bet_index += 1
         else:
-            self.bet_index = max(self.bet_index - 1, 0)
+            if self.bet_all_in:
+                self.bet_all_in = False  # come back from all-in
+            else:
+                self.bet_index = max(self.bet_index - 1, 0)
+
+    def toggle_all_in(self) -> None:
+        if self.bet_all_in:
+            self.bet_all_in = False
+        else:
+            self.bet_all_in = True
 
     def buy_upgrade(self, uid: str) -> bool:
         defn = UPGRADE_MAP.get(uid)

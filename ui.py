@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from game import SYMBOLS, GameState
+from game import SYMBOLS, GameState, CLICK_LEVELS, PASSIVE_LEVELS, SYNDICATE_PCT
 from upgrades import ALL_UPGRADES, upgrade_cost
 
 UPGRADES_PER_PAGE = 6
@@ -84,17 +84,18 @@ def _render_reels(state: GameState) -> Table:
     t.add_column(justify="center", min_width=5, no_wrap=True)
 
     sep = Text("│", style="white")
+    pay_sep = Text("┤", style="bright_white")  # brighter separator on payline
     mid_style = _payline_style(state.last_result, state.spin.active)
 
     tops, mids, bots = [], [], []
     for i in range(3):
         top, mid, bot = _reel_symbols(state, i)
-        tops.append(Text(top, style="bright_black", justify="center"))
-        mids.append(Text(mid, style=mid_style, justify="center"))
-        bots.append(Text(bot, style="bright_black", justify="center"))
+        tops.append(Text(f" {top} ", style="bright_black", justify="center"))
+        mids.append(Text(f"[{mid}]", style=mid_style, justify="center"))
+        bots.append(Text(f" {bot} ", style="bright_black", justify="center"))
 
     t.add_row(tops[0], sep, tops[1], sep, tops[2])
-    t.add_row(mids[0], sep, mids[1], sep, mids[2])
+    t.add_row(mids[0], pay_sep, mids[1], pay_sep, mids[2])
     t.add_row(bots[0], sep, bots[1], sep, bots[2])
     return t
 
@@ -121,12 +122,12 @@ def _render_clicker(state: GameState) -> Panel:
     if state.combo_count > 1:
         if combo_lv > 0:
             multiplier = min(1.0 + state.combo_count * 0.1 * combo_lv, 5.0)
-            t.add_row(
-                "Combo:",
-                Text(f"x{state.combo_count}  ({multiplier:.1f}x value)", style="bold yellow"),
-            )
+            combo_val = Text(f"x{state.combo_count}  ({multiplier:.1f}x value)", style="bold yellow")
         else:
-            t.add_row("Combo:", Text(f"x{state.combo_count}  (buy Click Combo to boost)", style="yellow"))
+            combo_val = Text(f"x{state.combo_count}  (buy Click Combo to boost)", style="yellow")
+        t.add_row("Combo:", combo_val)
+    else:
+        t.add_row("", "")
 
     if state.loan_active:
         t.add_row("Loan debt:", Text(fmt(state.loan_debt), style="bold red"))
@@ -156,7 +157,7 @@ def _render_clicker(state: GameState) -> Panel:
         else:
             abilities.append(Text("[2] Time Warp  READY", style="bright_cyan"))
 
-    controls = Text("\n[SPACE] Click\n[U]     Upgrades\n[Q/ESC] Quit", style="white")
+    controls = Text("\n[SPACE] Click\n[U]     Upgrades\n[M]     All-in bet\n[Q/ESC] Quit", style="white")
 
     content: list[Any] = [t]
     if abilities:
@@ -167,6 +168,35 @@ def _render_clicker(state: GameState) -> Panel:
 
     title = Text("CLICKER", style="bold bright_white")
     return Panel(Group(*content), title=title, border_style="white", padding=(1, 2))
+
+
+def _upgrade_next_desc(uid: str, cur: int) -> str:
+    nxt = cur + 1
+    if uid == "better_fingers":
+        val = CLICK_LEVELS[min(nxt, len(CLICK_LEVELS) - 1)]
+        return f"Next: ${val:,} per click"
+    if uid == "auto_tap":
+        val = PASSIVE_LEVELS[min(nxt, len(PASSIVE_LEVELS) - 1)]
+        return f"Next: ${val:,}/s passive"
+    if uid == "click_combo":
+        return f"Next: +{nxt * 10}% per combo click (max 5×)"
+    if uid == "lucky_charm":
+        return f"Next: ×{1.0 + nxt * 0.2:.1f} slot payouts"
+    if uid == "diamond_magnet":
+        return f"Next: diamond weight +{nxt * 3} (more 💎 hits)"
+    if uid == "the_syndicate":
+        pct = SYNDICATE_PCT[min(nxt, len(SYNDICATE_PCT) - 1)] * 100
+        return f"Next: +{pct:.0f}% bonus on every win"
+    if uid == "caffeine_rush":
+        return f"Next: 10× clicks for 15s, {60 // nxt}s cooldown"
+    if uid == "time_warp":
+        return f"Next: 5× passive for 30s, {120 // nxt}s cooldown"
+    if uid == "hot_hands":
+        threshold = max(1, 3 - nxt)
+        return f"Next: streak bonus activates at x{threshold} wins"
+    if uid == "risk_engine":
+        return f"Next: near-miss pays {nxt * 10}% of bet back"
+    return ""
 
 
 def _render_upgrades(state: GameState) -> Panel:
@@ -215,6 +245,10 @@ def _render_upgrades(state: GameState) -> Panel:
 
         rows.append(label)
         rows.append(desc_text)
+        if not maxed:
+            next_desc = _upgrade_next_desc(defn.id, cur)
+            if next_desc:
+                rows.append(Text(f"   {next_desc}", style="bright_cyan"))
         rows.append(cost_text)
         rows.append(Text(""))
 
@@ -251,10 +285,14 @@ def _render_slots(state: GameState) -> Panel:
         result_text.append("  Won  ", style="bold bright_green")
         result_text.append(fmt(state.last_win), style="bold bright_green")
     elif state.last_result == "near_miss":
-        result_text.append("  So close...", style="bright_yellow")
+        if state.last_win > 0:
+            result_text.append("  So close...  ", style="bright_yellow")
+            result_text.append(f"+{fmt(state.last_win)}", style="yellow")
+        else:
+            result_text.append("  So close...", style="bright_yellow")
     elif state.last_result == "loss":
         result_text.append("  Lost  ", style="bright_red")
-        result_text.append(fmt(state.bet), style="bright_red")
+        result_text.append(fmt(state.last_bet_placed), style="bright_red")
     else:
         result_text.append("  Press ENTER to spin", style="white")
 
@@ -266,11 +304,15 @@ def _render_slots(state: GameState) -> Panel:
     if is_hot:
         hot_text.append("  *** RUNNING HOT ***", style="bold bright_red")
 
-    bet_can_afford = state.balance >= state.bet
+    bet_can_afford = state.balance >= state.bet and state.bet > 0
     bet_text = Text()
     bet_text.append("  Bet: ", style="white")
-    bet_text.append(fmt(state.bet), style="bold bright_white" if bet_can_afford else "bold bright_red")
-    bet_text.append("   [j/k] or [↑/↓] adjust", style="white")
+    if state.bet_all_in:
+        bet_text.append("ALL IN ", style="bold bright_magenta")
+        bet_text.append(f"({fmt(state.bet)})", style="bright_magenta")
+    else:
+        bet_text.append(fmt(state.bet), style="bold bright_white" if bet_can_afford else "bold bright_red")
+    bet_text.append("   [j/k] adjust  [M] all-in", style="white")
 
     if state.spin.active:
         spin_hint = Text("  Spinning...", style="white")

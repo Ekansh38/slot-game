@@ -1,3 +1,4 @@
+import queue
 import threading
 import numpy as np
 
@@ -9,16 +10,35 @@ except ImportError:
 
 SAMPLE_RATE = 44100
 
+# Single worker thread — portaudio is not thread-safe; only ever call sd.play()
+# from one thread.
+_q: queue.Queue = queue.Queue(maxsize=4)  # drop old sounds if flooded
+
+
+def _worker() -> None:
+    while True:
+        samples = _q.get()
+        if samples is None:
+            return
+        try:
+            sd.play(samples, SAMPLE_RATE)
+            sd.wait()
+        except Exception:
+            pass
+
+
+if _AVAILABLE:
+    _thread = threading.Thread(target=_worker, daemon=True)
+    _thread.start()
+
 
 def _play(samples: np.ndarray) -> None:
     if not _AVAILABLE:
         return
-    def _run():
-        try:
-            sd.play(samples, SAMPLE_RATE)
-        except Exception:
-            pass
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        _q.put_nowait(samples)
+    except queue.Full:
+        pass  # drop if worker is busy — never block the game loop
 
 
 def _sine(freq: float, dur: float, vol: float = 0.3) -> np.ndarray:
