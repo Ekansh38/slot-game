@@ -6,6 +6,7 @@ import time
 
 from rich.live import Live
 
+import sound
 import ui
 from game import GameState
 from upgrades import ALL_UPGRADES
@@ -95,9 +96,10 @@ def main() -> None:
             while True:
                 frame_start = time.time()
 
-                # Reset space_fired once the key hasn't arrived for 80ms —
-                # that's the "key released" signal in a terminal.
-                if space_fired and frame_start - last_space_seen > 0.08:
+                # Reset space_fired once the key hasn't arrived for 300ms.
+                # Must exceed macOS key-repeat initial delay (~225ms min) so that
+                # the first auto-repeat doesn't sneak in between frames and re-fire.
+                if space_fired and frame_start - last_space_seen > 0.30:
                     space_fired = False
 
                 # Drain all queued keys
@@ -130,6 +132,7 @@ def main() -> None:
                 if remaining > 0:
                     time.sleep(remaining)
         finally:
+            sound.stop()
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     state.save()

@@ -28,8 +28,24 @@ def _worker() -> None:
 
 
 if _AVAILABLE:
-    _thread = threading.Thread(target=_worker, daemon=True)
+    _thread: threading.Thread | None = threading.Thread(target=_worker, daemon=True)
     _thread.start()
+else:
+    _thread = None
+
+
+def stop() -> None:
+    """Stop audio cleanly. Call before process exit to avoid PortAudio errors."""
+    if not _AVAILABLE:
+        return
+    try:
+        sd.stop()
+    except Exception:
+        pass
+    try:
+        _q.put_nowait(None)  # sentinel — tells worker to exit
+    except queue.Full:
+        pass
 
 
 def _play(samples: np.ndarray) -> None:

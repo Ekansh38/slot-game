@@ -111,8 +111,8 @@ def _render_clicker(state: GameState) -> Panel:
     caffeine_active = now < state.caffeine_end
     warp_active = now < state.time_warp_end
 
-    t = Table(show_header=False, box=None, padding=(0, 1), expand=True)
-    t.add_column(style="white", no_wrap=True)
+    t = Table(show_header=False, box=None, padding=(0, 1), expand=False)
+    t.add_column(style="white", no_wrap=True, min_width=14)
     t.add_column(style="bold bright_white", no_wrap=True)
 
     t.add_row("Click value:", fmt(cv))
