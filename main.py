@@ -3,7 +3,6 @@ import select
 import sys
 import termios
 import time
-import tty
 
 from rich.live import Live
 
@@ -75,7 +74,15 @@ def main() -> None:
     # auto_refresh=False disables Rich's internal render timer —
     # we drive every repaint ourselves via update(refresh=True).
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
-        tty.setraw(fd)
+        # Custom terminal mode: disable echo, canonical, and signal generation
+        # (so Ctrl-C sends \x03 as a raw char) but keep OPOST so that Rich's
+        # \n output is still converted to \r\n by the terminal driver.
+        # setraw() kills OPOST and breaks Rich's rendering entirely.
+        new = termios.tcgetattr(fd)
+        new[3] &= ~(termios.ECHO | termios.ICANON | termios.ISIG)
+        new[6][termios.VMIN] = 1
+        new[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSADRAIN, new)
         try:
             while True:
                 frame_start = time.time()
