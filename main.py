@@ -83,11 +83,7 @@ def main() -> None:
 
     frame_time = 1.0 / 60.0
 
-    # Space debounce: suppress auto-repeat events.
-    # Terminal key-repeat fires every ~30ms when held. Human re-taps are at
-    # least 70ms apart. So: fire on first event, suppress anything arriving
-    # within 70ms of the previous event (those are repeats, not new presses).
-    last_space_time = 0.0
+    space_dirty = False  # True while space is held down
 
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
         new = termios.tcgetattr(fd)
@@ -99,16 +95,17 @@ def main() -> None:
             while True:
                 frame_start = time.time()
 
-                # Drain all queued keys
+                space_seen = False
                 quit_requested = False
                 while True:
                     key = _read_key()
                     if key is None:
                         break
                     if key in ("\x03", "\x04", "q", "Q"):
-                        # Q always quits, even from bet input mode
                         quit_requested = True
                         break
+                    elif key == " ":
+                        space_seen = True
                     elif state.bet_input_mode:
                         if key in ("\r", "\n"):
                             if state.bet_input_buf:
@@ -124,7 +121,7 @@ def main() -> None:
                         elif key == "\x1b":
                             state.bet_input_mode = False
                             state.bet_input_buf = ""
-                        elif key in ("\x7f", "\x08"):  # backspace / DEL
+                        elif key in ("\x7f", "\x08"):
                             state.bet_input_buf = state.bet_input_buf[:-1]
                         elif key.isdigit() or (key == "." and "." not in state.bet_input_buf):
                             state.bet_input_buf += key
@@ -140,16 +137,17 @@ def main() -> None:
                                 pass
                             state.bet_input_mode = False
                             state.bet_input_buf = ""
-                    elif key == " ":
-                        now_t = time.time()
-                        if now_t - last_space_time > 0.25:
-                            state.do_click()
-                        last_space_time = now_t  # always update — extends cooldown while held
                     elif _handle_key(key, state):
                         quit_requested = True
                         break
                 if quit_requested:
                     break
+
+                if space_seen and not space_dirty:
+                    state.do_click()
+                    space_dirty = True
+                elif not space_seen:
+                    space_dirty = False
 
                 state.tick()
                 live.update(ui.render(state), refresh=True)
