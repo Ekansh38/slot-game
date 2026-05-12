@@ -164,7 +164,8 @@ class GameState:
         if not self.can_spin():
             return False
         with self._lock:
-            self.balance -= self.bet
+            self.last_bet_placed = self.bet  # capture before deducting (all-in uses balance)
+            self.balance -= self.last_bet_placed
             self.total_spins += 1
             weights = self.reel_weights()
             result = random.choices(SYMBOLS, weights=weights, k=3)
@@ -235,7 +236,6 @@ class GameState:
 
     def _resolve_spin(self) -> list[str]:
         """Must be called inside self._lock. Returns sound event names."""
-        self.last_bet_placed = self.bet
         result = self.spin.result
         counts: dict[str, int] = {}
         for s in result:
@@ -244,12 +244,13 @@ class GameState:
         mult = self.payout_mult()
         win = 0.0
 
+        bet = self.last_bet_placed  # use captured amount — self.bet may be 0 if all-in
         if len(counts) == 1:
-            win = self.bet * THREE_PAYOUTS[result[0]] * mult
+            win = bet * THREE_PAYOUTS[result[0]] * mult
         else:
             for sym, cnt in counts.items():
                 if cnt == 2:
-                    win = self.bet * TWO_PAYOUTS[sym] * mult
+                    win = bet * TWO_PAYOUTS[sym] * mult
                     break
 
         if win > 0:
@@ -264,7 +265,7 @@ class GameState:
             if self.spin.near_miss:
                 risk_lv = self.level("risk_engine")
                 if risk_lv > 0:
-                    consolation = self.bet * 0.1 * risk_lv
+                    consolation = bet * 0.1 * risk_lv
                     self.balance += consolation
                     self.last_win = consolation
                 self.last_result = "near_miss"
@@ -273,7 +274,7 @@ class GameState:
             return ["loss"]
 
         self.win_streak += 1
-        ratio = win / self.bet
+        ratio = win / bet
         if ratio >= THREE_PAYOUTS["💎"] * 0.8:
             self.last_result = "jackpot"
             return ["jackpot"]
