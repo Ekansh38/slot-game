@@ -307,14 +307,24 @@ def _render_slots(state: GameState) -> Panel:
     bet_can_afford = state.balance >= state.bet and state.bet > 0
     bet_text = Text()
     bet_text.append("  Bet: ", style="white")
-    if state.bet_all_in:
+    if state.bet_input_mode:
+        display = state.bet_input_buf if state.bet_input_buf else ""
+        bet_text.append(f"${display}_", style="bold bright_yellow")
+        bet_text.append("   [ENTER] confirm  [ESC] cancel", style="white")
+    elif state.bet_all_in:
         bet_text.append("ALL IN ", style="bold bright_magenta")
         bet_text.append(f"({fmt(state.bet)})", style="bright_magenta")
+        bet_text.append("   [j/k] adjust  [M] all-in  [B] type amount", style="white")
+    elif state.bet_custom is not None:
+        bet_text.append(fmt(state.bet_custom), style="bold bright_yellow" if bet_can_afford else "bold bright_red")
+        bet_text.append("   [j/k] adjust  [M] all-in  [B] type amount", style="white")
     else:
         bet_text.append(fmt(state.bet), style="bold bright_white" if bet_can_afford else "bold bright_red")
-    bet_text.append("   [j/k] adjust  [M] all-in", style="white")
+        bet_text.append("   [j/k] adjust  [M] all-in  [B] type amount", style="white")
 
-    if state.spin.active:
+    if state.bet_input_mode:
+        spin_hint = Text("")
+    elif state.spin.active:
         spin_hint = Text("  Spinning...", style="white")
     elif not bet_can_afford:
         spin_hint = Text("  Not enough funds", style="bright_red")

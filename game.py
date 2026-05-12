@@ -72,6 +72,9 @@ class GameState:
         self.last_win: float = 0.0
         self.last_bet_placed: float = 0.0
         self.bet_all_in: bool = False
+        self.bet_custom: float | None = None
+        self.bet_input_mode: bool = False
+        self.bet_input_buf: str = ""
         self.last_symbols: list[str] = ["🍒", "🍒", "🍒"]
         self.total_spins: int = 0
         self.spin = SpinState()
@@ -105,6 +108,8 @@ class GameState:
     def bet(self) -> float:
         if self.bet_all_in:
             return self.balance
+        if self.bet_custom is not None:
+            return self.bet_custom
         return BET_STEPS[self.bet_index]
 
     def level(self, uid: str) -> int:
@@ -279,6 +284,7 @@ class GameState:
         return ["win"]
 
     def adjust_bet(self, direction: int) -> None:
+        self.bet_custom = None  # clear custom amount when stepping
         if direction > 0:
             if self.bet_all_in:
                 return  # already at max

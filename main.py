@@ -63,6 +63,10 @@ def _handle_key(key: str, state: GameState) -> bool:
     elif key in ("m", "M"):
         if not state.show_upgrades:
             state.toggle_all_in()
+    elif key in ("b", "B"):
+        if not state.show_upgrades:
+            state.bet_input_mode = True
+            state.bet_input_buf = ""
     elif key == "1":
         state.activate_ability("caffeine_rush")
     elif key == "2":
@@ -101,7 +105,26 @@ def main() -> None:
                     key = _read_key()
                     if key is None:
                         break
-                    if key == " ":
+                    if state.bet_input_mode:
+                        if key in ("\r", "\n"):
+                            if state.bet_input_buf:
+                                try:
+                                    amount = float(state.bet_input_buf)
+                                    if amount > 0:
+                                        state.bet_custom = amount
+                                        state.bet_all_in = False
+                                except ValueError:
+                                    pass
+                            state.bet_input_mode = False
+                            state.bet_input_buf = ""
+                        elif key in ("\x1b", "q", "Q"):
+                            state.bet_input_mode = False
+                            state.bet_input_buf = ""
+                        elif key in ("\x7f", "\x08"):  # backspace / DEL
+                            state.bet_input_buf = state.bet_input_buf[:-1]
+                        elif key.isdigit():
+                            state.bet_input_buf += key
+                    elif key == " ":
                         now_t = time.time()
                         if now_t - last_space_time > 0.07:
                             state.do_click()
