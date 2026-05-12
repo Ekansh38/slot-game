@@ -83,11 +83,12 @@ def main() -> None:
 
     frame_time = 1.0 / 60.0
 
-    space_dirty = False  # True while space is held down
+    space_dirty = False
+    space_last_seen = 0.0  # time of most recent space event
 
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
         new = termios.tcgetattr(fd)
-        new[3] &= ~(termios.ECHO | termios.ICANON | termios.ISIG)
+        new[3] &= ~(termios.ECHO | termios.ICANON)  # keep ISIG so Ctrl-C raises KeyboardInterrupt
         new[6][termios.VMIN] = 1
         new[6][termios.VTIME] = 0
         termios.tcsetattr(fd, termios.TCSADRAIN, new)
@@ -143,10 +144,14 @@ def main() -> None:
                 if quit_requested:
                     break
 
-                if space_seen and not space_dirty:
-                    state.do_click()
-                    space_dirty = True
-                elif not space_seen:
+                now = time.time()
+                if space_seen:
+                    space_last_seen = now
+                    if not space_dirty:
+                        state.do_click()
+                        space_dirty = True
+                elif space_dirty and now - space_last_seen > 0.1:
+                    # 100ms with no space = key released (longer than any repeat interval)
                     space_dirty = False
 
                 state.tick()
