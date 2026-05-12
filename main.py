@@ -133,14 +133,10 @@ def main() -> None:
                             _MULT = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
                             try:
                                 base = float(state.bet_input_buf) if state.bet_input_buf else 1.0
-                                amount = base * _MULT[key.lower()]
-                                if amount > 0:
-                                    state.bet_custom = amount
-                                    state.bet_all_in = False
+                                result = int(base * _MULT[key.lower()])
+                                state.bet_input_buf = str(result)
                             except ValueError:
                                 pass
-                            state.bet_input_mode = False
-                            state.bet_input_buf = ""
                     elif _handle_key(key, state):
                         quit_requested = True
                         break
