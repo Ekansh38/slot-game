@@ -310,7 +310,7 @@ def _render_slots(state: GameState) -> Panel:
     if state.bet_input_mode:
         display = state.bet_input_buf if state.bet_input_buf else ""
         bet_text.append(f"${display}_", style="bold bright_yellow")
-        bet_text.append("   [ENTER] confirm  [ESC] cancel", style="white")
+        bet_text.append("   [K/M/B/T] confirm with suffix  [ENTER] confirm  [ESC] cancel", style="white")
     elif state.bet_all_in:
         bet_text.append("ALL IN ", style="bold bright_magenta")
         bet_text.append(f"({fmt(state.bet)})", style="bright_magenta")

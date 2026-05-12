@@ -126,8 +126,20 @@ def main() -> None:
                             state.bet_input_buf = ""
                         elif key in ("\x7f", "\x08"):  # backspace / DEL
                             state.bet_input_buf = state.bet_input_buf[:-1]
-                        elif key.isdigit():
+                        elif key.isdigit() or (key == "." and "." not in state.bet_input_buf):
                             state.bet_input_buf += key
+                        elif key.lower() in ("k", "m", "b", "t"):
+                            _MULT = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
+                            try:
+                                base = float(state.bet_input_buf) if state.bet_input_buf else 1.0
+                                amount = base * _MULT[key.lower()]
+                                if amount > 0:
+                                    state.bet_custom = amount
+                                    state.bet_all_in = False
+                            except ValueError:
+                                pass
+                            state.bet_input_mode = False
+                            state.bet_input_buf = ""
                     elif key == " ":
                         now_t = time.time()
                         if now_t - last_space_time > 0.25:
