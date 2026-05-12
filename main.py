@@ -79,12 +79,11 @@ def main() -> None:
 
     frame_time = 1.0 / 60.0
 
-    # Space debounce: fire once per physical press.
-    # When space is held, the terminal keeps sending it. We track whether we've
-    # fired for the current "hold" and only reset when space stops arriving
-    # (i.e., the key was physically released — ~80ms gap in events).
-    space_fired = False
-    last_space_seen = 0.0
+    # Space debounce: suppress auto-repeat events.
+    # Terminal key-repeat fires every ~30ms when held. Human re-taps are at
+    # least 70ms apart. So: fire on first event, suppress anything arriving
+    # within 70ms of the previous event (those are repeats, not new presses).
+    last_space_time = 0.0
 
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
         new = termios.tcgetattr(fd)
@@ -96,12 +95,6 @@ def main() -> None:
             while True:
                 frame_start = time.time()
 
-                # Reset space_fired once the key hasn't arrived for 300ms.
-                # Must exceed macOS key-repeat initial delay (~225ms min) so that
-                # the first auto-repeat doesn't sneak in between frames and re-fire.
-                if space_fired and frame_start - last_space_seen > 0.30:
-                    space_fired = False
-
                 # Drain all queued keys
                 quit_requested = False
                 while True:
@@ -109,10 +102,10 @@ def main() -> None:
                     if key is None:
                         break
                     if key == " ":
-                        last_space_seen = time.time()
-                        if not space_fired:
-                            space_fired = True
+                        now_t = time.time()
+                        if now_t - last_space_time > 0.07:
                             state.do_click()
+                        last_space_time = now_t
                     elif _handle_key(key, state):
                         quit_requested = True
                         break
