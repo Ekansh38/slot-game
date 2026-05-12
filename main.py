@@ -105,7 +105,11 @@ def main() -> None:
                     key = _read_key()
                     if key is None:
                         break
-                    if state.bet_input_mode:
+                    if key in ("\x03", "\x04", "q", "Q"):
+                        # Q always quits, even from bet input mode
+                        quit_requested = True
+                        break
+                    elif state.bet_input_mode:
                         if key in ("\r", "\n"):
                             if state.bet_input_buf:
                                 try:
@@ -117,7 +121,7 @@ def main() -> None:
                                     pass
                             state.bet_input_mode = False
                             state.bet_input_buf = ""
-                        elif key in ("\x1b", "q", "Q"):
+                        elif key == "\x1b":
                             state.bet_input_mode = False
                             state.bet_input_buf = ""
                         elif key in ("\x7f", "\x08"):  # backspace / DEL
@@ -126,9 +130,9 @@ def main() -> None:
                             state.bet_input_buf += key
                     elif key == " ":
                         now_t = time.time()
-                        if now_t - last_space_time > 0.07:
+                        if now_t - last_space_time > 0.25:
                             state.do_click()
-                        last_space_time = now_t
+                        last_space_time = now_t  # always update — extends cooldown while held
                     elif _handle_key(key, state):
                         quit_requested = True
                         break
