@@ -81,7 +81,10 @@ def main() -> None:
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
 
-    frame_time = 1.0 / 60.0
+    # Input checked every 4ms for snappy response; screen redrawn at 30fps.
+    input_interval = 0.004
+    render_interval = 1.0 / 30.0
+    last_render = 0.0
 
     space_dirty = False
     space_last_seen = 0.0
@@ -94,7 +97,7 @@ def main() -> None:
         termios.tcsetattr(fd, termios.TCSADRAIN, new)
         try:
             while True:
-                frame_start = time.time()
+                tick_start = time.time()
 
                 space_seen = False
                 quit_requested = False
@@ -154,15 +157,18 @@ def main() -> None:
                     space_dirty = False
 
                 state.tick()
-                live.update(ui.render(state), refresh=True)
+
+                if now - last_render >= render_interval:
+                    live.update(ui.render(state), refresh=True)
+                    last_render = now
 
                 if state._save_now or state._change_count >= 30:
                     state.save()
                     state._change_count = 0
                     state._save_now = False
 
-                elapsed = time.time() - frame_start
-                remaining = frame_time - elapsed
+                elapsed = time.time() - tick_start
+                remaining = input_interval - elapsed
                 if remaining > 0:
                     time.sleep(remaining)
         finally:
