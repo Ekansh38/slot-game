@@ -84,6 +84,7 @@ def main() -> None:
     frame_time = 1.0 / 60.0
 
     space_dirty = False
+    space_last_seen = 0.0
 
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
         new = termios.tcgetattr(fd)
@@ -143,11 +144,13 @@ def main() -> None:
                 if quit_requested:
                     break
 
+                now = time.time()
                 if space_seen:
                     if not space_dirty:
                         state.do_click()
                     space_dirty = True
-                else:
+                    space_last_seen = now
+                elif space_dirty and now - space_last_seen > 0.06:
                     space_dirty = False
 
                 state.tick()
