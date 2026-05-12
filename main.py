@@ -150,7 +150,7 @@ def main() -> None:
                         state.do_click()
                     space_dirty = True
                     space_last_seen = now
-                elif space_dirty and now - space_last_seen > 0.06:
+                elif space_dirty and now - space_last_seen > 0.04:
                     space_dirty = False
 
                 state.tick()
