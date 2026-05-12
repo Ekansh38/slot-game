@@ -84,7 +84,6 @@ def main() -> None:
     frame_time = 1.0 / 60.0
 
     space_dirty = False
-    space_last_seen = 0.0  # time of most recent space event
 
     with Live(ui.render(state), auto_refresh=False, screen=True) as live:
         new = termios.tcgetattr(fd)
@@ -144,14 +143,11 @@ def main() -> None:
                 if quit_requested:
                     break
 
-                now = time.time()
                 if space_seen:
-                    space_last_seen = now
                     if not space_dirty:
                         state.do_click()
-                        space_dirty = True
-                elif space_dirty and now - space_last_seen > 0.1:
-                    # 100ms with no space = key released (longer than any repeat interval)
+                    space_dirty = True
+                else:
                     space_dirty = False
 
                 state.tick()
