@@ -425,7 +425,7 @@ class GameState:
         return True
 
     def can_prestige(self) -> bool:
-        return self.balance >= PRESTIGE_THRESHOLD and not self.spin.active
+        return self.balance >= PRESTIGE_THRESHOLD
 
     def do_prestige(self) -> None:
         if not self.can_prestige():
@@ -456,6 +456,7 @@ class GameState:
             self._click_storm_counter = 0
             self.storm_bonus_pending = 0.0
             self.spin = SpinState()
+            self.show_upgrades = False
         self._save_now = True
         sound.play_jackpot()
 
