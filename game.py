@@ -417,9 +417,9 @@ class GameState:
             self.balance -= cost
             self.upgrades[uid] = cur + 1
             if uid == "loan_shark":
-                self.balance += 10_000.0
+                self.balance += 100_000.0
                 self.loan_active = True
-                self.loan_debt = 25_000.0
+                self.loan_debt = 300_000.0
         sound.play_upgrade()
         self._save_now = True
         return True
