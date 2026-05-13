@@ -114,10 +114,16 @@ def main() -> None:
                     elif key == " ":
                         space_seen = True
                     elif state.bet_input_mode:
+                        _SUFFIXES = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
+                        _has_suffix = bool(state.bet_input_buf) and state.bet_input_buf[-1].lower() in _SUFFIXES
                         if key in ("\r", "\n"):
                             if state.bet_input_buf:
                                 try:
-                                    amount = float(state.bet_input_buf)
+                                    buf = state.bet_input_buf
+                                    if buf[-1].lower() in _SUFFIXES:
+                                        amount = float(buf[:-1] or "1") * _SUFFIXES[buf[-1].lower()]
+                                    else:
+                                        amount = float(buf)
                                     if amount > 0:
                                         state.bet_custom = amount
                                         state.bet_all_in = False
@@ -130,16 +136,15 @@ def main() -> None:
                             state.bet_input_buf = ""
                         elif key in ("\x7f", "\x08"):
                             state.bet_input_buf = state.bet_input_buf[:-1]
-                        elif key.isdigit() or (key == "." and "." not in state.bet_input_buf):
-                            state.bet_input_buf += key
-                        elif key.lower() in ("k", "m", "b", "t"):
-                            _MULT = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
-                            try:
-                                base = float(state.bet_input_buf) if state.bet_input_buf else 1.0
-                                result = int(base * _MULT[key.lower()])
-                                state.bet_input_buf = str(result)
-                            except ValueError:
-                                pass
+                        elif key.isdigit() or (key == "." and "." not in state.bet_input_buf and not _has_suffix):
+                            if not _has_suffix:
+                                state.bet_input_buf += key
+                        elif key.lower() in _SUFFIXES:
+                            # Append or replace existing suffix — never expand to digits
+                            if _has_suffix:
+                                state.bet_input_buf = state.bet_input_buf[:-1] + key.lower()
+                            elif state.bet_input_buf:
+                                state.bet_input_buf += key.lower()
                     elif _handle_key(key, state):
                         quit_requested = True
                         break
