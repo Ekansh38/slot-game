@@ -12,18 +12,33 @@ class UpgradeDef:
 
 
 ALL_UPGRADES: list[UpgradeDef] = [
-    UpgradeDef("better_fingers", "Better Fingers",  "+click value each level",              15,          12),
-    UpgradeDef("auto_tap",       "Auto Tap",         "+passive $/s each level",              60,          12),
-    UpgradeDef("click_combo",    "Click Combo",      "Rapid clicks stack a multiplier",      500,          8),
-    UpgradeDef("lucky_charm",    "Lucky Charm",      "Slot payouts x1.15 per level",         2_000,        8),
-    UpgradeDef("diamond_magnet", "Diamond Magnet",   "Diamonds appear more often on reels",  8_000,        5),
-    UpgradeDef("slot_intuition", "Slot Intuition",   "Shows RUNNING HOT near jackpots",      30_000,       1),
-    UpgradeDef("caffeine_rush",  "Caffeine Rush",    "Active: 10x clicks for 15s (60s CD)",  12_000,       5, is_active=True),
-    UpgradeDef("the_syndicate",  "The Syndicate",    "+% of every spin win as bonus",        150_000,      6),
-    UpgradeDef("time_warp",      "Time Warp",        "Active: 5x passive for 30s (2m CD)",   1_500_000,    5, is_active=True),
-    UpgradeDef("loan_shark",     "Loan Shark",       "Borrow $10K, auto-repay $25K slowly",  0,            1),
-    UpgradeDef("hot_hands",      "Hot Hands",        "Win streak bonus starts at x2 streak", 75_000,       5),
-    UpgradeDef("risk_engine",    "Risk Engine",      "Near-miss pays out small consolation",  500_000,      3),
+    # --- Early game ---
+    UpgradeDef("better_fingers", "Better Fingers",  "+click value each level",              15,           21),
+    UpgradeDef("auto_tap",       "Auto Tap",         "+passive $/s each level",              60,           21),
+    UpgradeDef("click_combo",    "Click Combo",      "Rapid clicks stack a multiplier",      500,          10),
+    UpgradeDef("lucky_charm",    "Lucky Charm",      "Slot payouts ×1.15 per level",         2_000,        12),
+    UpgradeDef("diamond_magnet", "Diamond Magnet",   "Diamonds appear more often on reels",  8_000,         8),
+    UpgradeDef("loan_shark",     "Loan Shark",       "Borrow $10K, auto-repay $25K slowly",  0,             1),
+
+    # --- Mid game ---
+    UpgradeDef("slot_intuition", "Slot Intuition",   "RUNNING HOT boosts high-value symbols",30_000,        1),
+    UpgradeDef("caffeine_rush",  "Caffeine Rush",    "Active: 10× clicks for 15s",           12_000,        5, is_active=True),
+    UpgradeDef("click_storm",    "Click Storm",      "Every N clicks triggers a bonus burst", 5_000_000,    3),
+    UpgradeDef("hot_hands",      "Hot Hands",        "Win streak bonus starts at x2 streak",  75_000,        8),
+    UpgradeDef("risk_engine",    "Risk Engine",      "Near-miss pays out small consolation",  500_000,       5),
+    UpgradeDef("auto_spin",      "Auto Spin",        "Automatically spins every few seconds", 100_000,       5),
+    UpgradeDef("double_down",    "Double Down",      "5% chance per level to double any win", 250_000,       5),
+
+    # --- Late game ---
+    UpgradeDef("the_syndicate",  "The Syndicate",    "+% bonus on every spin win",           150_000,      10),
+    UpgradeDef("time_warp",      "Time Warp",        "Active: 5× passive for 30s",         1_500_000,       5, is_active=True),
+    UpgradeDef("golden_reels",   "Golden Reels",     "All slot payouts ×1.5 per level",    5_000_000,       6),
+    UpgradeDef("wild_symbol",    "Wild Symbol",      "8% chance per level for a wild reel",20_000_000,      4),
+    UpgradeDef("jackpot_boost",  "Jackpot Boost",    "💎 jackpot payout ×2 per level",     50_000_000,      5),
+
+    # --- End game ---
+    UpgradeDef("hyper_fingers",  "Hyper Fingers",    "+mega click value tier each level",  100_000_000,    10),
+    UpgradeDef("mega_passive",   "Mega Passive",     "+mega passive income tier each level",200_000_000,   10),
 ]
 
 UPGRADE_MAP: dict[str, UpgradeDef] = {u.id: u for u in ALL_UPGRADES}

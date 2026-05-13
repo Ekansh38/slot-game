@@ -15,9 +15,30 @@ BASE_WEIGHTS = [2, 5, 10, 15, 20]
 THREE_PAYOUTS = {"💎": 100, "7": 25, "🔔": 10, "BAR": 5, "🍒": 3}
 TWO_PAYOUTS   = {"💎": 4,   "7": 3,  "🔔": 2,  "BAR": 2, "🍒": 2}
 
-CLICK_LEVELS   = [1, 2, 5, 15, 50, 150, 500, 2_000, 10_000, 40_000, 200_000, 1_000_000, 5_000_000]
-PASSIVE_LEVELS = [0, 1, 4, 12, 40, 150, 600, 2_500, 8_000, 30_000, 120_000, 500_000, 2_000_000]
-SYNDICATE_PCT  = [0.0, 0.01, 0.03, 0.07, 0.15, 0.30, 0.50]
+CLICK_LEVELS = [
+    1, 2, 5, 15, 50, 150, 500, 2_000, 10_000, 40_000, 200_000, 1_000_000, 5_000_000,
+    20_000_000, 80_000_000, 300_000_000, 1_200_000_000, 5_000_000_000,
+    20_000_000_000, 80_000_000_000, 300_000_000_000, 1_200_000_000_000,
+]
+PASSIVE_LEVELS = [
+    0, 1, 4, 12, 40, 150, 600, 2_500, 8_000, 30_000, 120_000, 500_000, 2_000_000,
+    8_000_000, 30_000_000, 120_000_000, 500_000_000, 2_000_000_000,
+    8_000_000_000, 30_000_000_000, 120_000_000_000, 500_000_000_000,
+]
+HYPER_CLICK_LEVELS = [
+    0, 5_000_000_000_000, 20_000_000_000_000, 80_000_000_000_000,
+    300_000_000_000_000, 1_200_000_000_000_000, 5_000_000_000_000_000,
+    20_000_000_000_000_000, 80_000_000_000_000_000, 300_000_000_000_000_000,
+    1_200_000_000_000_000_000,
+]
+MEGA_PASSIVE_LEVELS = [
+    0, 2_000_000_000_000, 8_000_000_000_000, 30_000_000_000_000,
+    120_000_000_000_000, 500_000_000_000_000, 2_000_000_000_000_000,
+    8_000_000_000_000_000, 30_000_000_000_000_000, 120_000_000_000_000_000,
+    500_000_000_000_000_000,
+]
+SYNDICATE_PCT = [0.0, 0.01, 0.03, 0.07, 0.15, 0.30, 0.50, 0.75, 1.00, 1.50, 2.00]
+PRESTIGE_THRESHOLD = 1_000_000_000_000  # $1T to prestige
 
 BET_STEPS = [
     1, 5, 10, 25, 50, 100, 250, 500,
@@ -97,6 +118,23 @@ class GameState:
         # Hot streak (slot_intuition)
         self.hot_until: float = 0.0
 
+        # Stats tracking
+        self.total_winnings: float = 0.0
+        self.biggest_win: float = 0.0
+        self.jackpot_count: int = 0
+        self.last_doubled: bool = False
+
+        # Auto-spin timer
+        self.auto_spin_timer: float = 0.0
+
+        # Prestige
+        self.prestige_count: int = 0
+        self.prestige_mult: float = 1.0  # 1.5^prestige_count
+
+        # Click storm counter
+        self._click_storm_counter: int = 0
+        self.storm_bonus_pending: float = 0.0  # shown in UI briefly
+
         # Save tracking: increments on clicks + passive ticks, triggers save at 30
         self._change_count: int = 0
         self._save_now: bool = False  # set True when spin resolves or upgrade bought
@@ -118,6 +156,9 @@ class GameState:
     def click_value(self) -> float:
         lv = self.level("better_fingers")
         base = float(CLICK_LEVELS[min(lv, len(CLICK_LEVELS) - 1)])
+        hyper_lv = self.level("hyper_fingers")
+        base += float(HYPER_CLICK_LEVELS[min(hyper_lv, len(HYPER_CLICK_LEVELS) - 1)])
+        base *= self.prestige_mult
         if time.time() < self.caffeine_end:
             base *= 10.0
         cl = self.level("click_combo")
@@ -128,12 +169,17 @@ class GameState:
     def passive_rate(self) -> float:
         lv = self.level("auto_tap")
         base = float(PASSIVE_LEVELS[min(lv, len(PASSIVE_LEVELS) - 1)])
+        mega_lv = self.level("mega_passive")
+        base += float(MEGA_PASSIVE_LEVELS[min(mega_lv, len(MEGA_PASSIVE_LEVELS) - 1)])
+        base *= self.prestige_mult
         if time.time() < self.time_warp_end:
             base *= 5.0
         return base
 
     def payout_mult(self) -> float:
         m = 1.0 + self.level("lucky_charm") * 0.15
+        m *= 1.0 + self.level("golden_reels") * 0.5
+        m *= self.prestige_mult
         streak_threshold = max(1, 3 - self.level("hot_hands"))
         if self.win_streak >= streak_threshold:
             m *= 1.0 + (self.win_streak - streak_threshold + 1) * 0.1
@@ -142,6 +188,11 @@ class GameState:
     def reel_weights(self) -> list[int]:
         w = BASE_WEIGHTS.copy()
         w[0] += self.level("diamond_magnet") * 3
+        # Running hot actually boosts high-value symbol weights
+        if self.level("slot_intuition") > 0 and time.time() < self.hot_until:
+            w[0] += 3  # 💎
+            w[1] += 4  # 7
+            w[2] += 3  # 🔔
         return w
 
     def do_click(self) -> None:
@@ -152,9 +203,20 @@ class GameState:
             else:
                 self.combo_count = 1
             self.last_click_time = now
-            self.balance += self.click_value()
+            cv = self.click_value()
+            self.balance += cv
             self.total_clicks += 1
             self._change_count += 1
+            # Click storm bonus
+            cs_lv = self.level("click_storm")
+            if cs_lv > 0:
+                threshold = max(10, 50 - (cs_lv - 1) * 15)  # 50 / 35 / 20
+                self._click_storm_counter += 1
+                if self._click_storm_counter >= threshold:
+                    self._click_storm_counter = 0
+                    bonus = cv * 40 * cs_lv
+                    self.balance += bonus
+                    self.storm_bonus_pending = bonus
         sound.play_click()
 
     def can_spin(self) -> bool:
@@ -169,6 +231,12 @@ class GameState:
             self.total_spins += 1
             weights = self.reel_weights()
             result = random.choices(SYMBOLS, weights=weights, k=3)
+            # Wild symbol: replace one reel with the most common other symbol
+            wild_lv = self.level("wild_symbol")
+            if wild_lv > 0 and random.random() < wild_lv * 0.08:
+                wild_idx = random.randint(0, 2)
+                others = [result[i] for i in range(3) if i != wild_idx]
+                result[wild_idx] = max(set(others), key=others.count)
             counts: dict[str, int] = {}
             for s in result:
                 counts[s] = counts.get(s, 0) + 1
@@ -180,11 +248,13 @@ class GameState:
             sp.near_miss = near_miss
             sp.near_miss_sym = result[0] if near_miss else ""
             self.spin = sp
+            self.last_doubled = False
         sound.play_spin_start()
         return True
 
     def tick(self) -> None:
         sounds: list[str] = []
+        _do_auto_spin = False
         now = time.time()
         with self._lock:
             dt = now - self._last_tick
@@ -229,10 +299,21 @@ class GameState:
                 if random.random() < 0.05 * dt:
                     self.hot_until = now + random.uniform(5.0, 15.0)
 
+            # Auto spin
+            if not self.spin.active and self.level("auto_spin") > 0:
+                _auto_intervals = [10.0, 8.0, 6.0, 4.0, 3.0]
+                lv = min(self.level("auto_spin"), len(_auto_intervals))
+                if now - self.auto_spin_timer >= _auto_intervals[lv - 1]:
+                    self.auto_spin_timer = now
+                    _do_auto_spin = self.can_spin()
+
         for snd in sounds:
             fn = _SOUND_DISPATCH.get(snd)
             if fn:
                 fn()
+
+        if _do_auto_spin:
+            self.start_spin()
 
     def _resolve_spin(self) -> list[str]:
         """Must be called inside self._lock. Returns sound event names."""
@@ -254,8 +335,24 @@ class GameState:
                     break
 
         if win > 0:
+            # Jackpot Boost: jackpot wins multiplied per level
+            if len(counts) == 1 and result[0] == "💎":
+                jb = self.level("jackpot_boost")
+                if jb > 0:
+                    win *= 2.0 ** jb
+
+            # Double Down: chance to double the win
+            dd_lv = self.level("double_down")
+            if dd_lv > 0 and random.random() < dd_lv * 0.05:
+                win *= 2.0
+                self.last_doubled = True
+
             syn_lv = min(self.level("the_syndicate"), len(SYNDICATE_PCT) - 1)
             win *= 1.0 + SYNDICATE_PCT[syn_lv]
+
+            self.total_winnings += win
+            if win > self.biggest_win:
+                self.biggest_win = win
 
         self.balance += win
         self.last_win = win
@@ -276,6 +373,7 @@ class GameState:
         self.win_streak += 1
         ratio = win / bet
         if ratio >= THREE_PAYOUTS["💎"] * 0.8:
+            self.jackpot_count += 1
             self.last_result = "jackpot"
             return ["jackpot"]
         if ratio >= THREE_PAYOUTS["7"] * 0.8:
@@ -326,16 +424,52 @@ class GameState:
         self._save_now = True
         return True
 
+    def can_prestige(self) -> bool:
+        return self.balance >= PRESTIGE_THRESHOLD and not self.spin.active
+
+    def do_prestige(self) -> None:
+        if not self.can_prestige():
+            return
+        with self._lock:
+            self.prestige_count += 1
+            self.prestige_mult = 1.5 ** self.prestige_count
+            # Reset progress but keep prestige fields and lifetime stats
+            self.balance = 0.0
+            self.bet_index = 0
+            self.bet_all_in = False
+            self.bet_custom = None
+            self.upgrades = {}
+            self.win_streak = 0
+            self.loan_active = False
+            self.loan_debt = 0.0
+            self.last_symbols = ["🍒", "🍒", "🍒"]
+            self.last_result = ""
+            self.last_win = 0.0
+            self.last_bet_placed = 0.0
+            self.combo_count = 0
+            self.caffeine_end = 0.0
+            self.caffeine_cd = 0.0
+            self.time_warp_end = 0.0
+            self.time_warp_cd = 0.0
+            self.hot_until = 0.0
+            self.auto_spin_timer = 0.0
+            self._click_storm_counter = 0
+            self.storm_bonus_pending = 0.0
+            self.spin = SpinState()
+        self._save_now = True
+        sound.play_jackpot()
+
     def activate_ability(self, uid: str) -> bool:
         now = time.time()
-        if uid == "caffeine_rush" and self.level(uid) > 0 and now >= self.caffeine_cd:
+        lv = self.level(uid)
+        if uid == "caffeine_rush" and lv > 0 and now >= self.caffeine_cd:
             self.caffeine_end = now + 15.0
-            self.caffeine_cd = now + 60.0
+            self.caffeine_cd = now + max(12, 60 // lv)
             sound.play_active_ability()
             return True
-        if uid == "time_warp" and self.level(uid) > 0 and now >= self.time_warp_cd:
+        if uid == "time_warp" and lv > 0 and now >= self.time_warp_cd:
             self.time_warp_end = now + 30.0
-            self.time_warp_cd = now + 120.0
+            self.time_warp_cd = now + max(24, 120 // lv)
             sound.play_active_ability()
             return True
         return False
@@ -344,6 +478,8 @@ class GameState:
         data = {
             "balance": self.balance,
             "bet_index": self.bet_index,
+            "bet_all_in": self.bet_all_in,
+            "bet_custom": self.bet_custom,
             "upgrades": self.upgrades,
             "win_streak": self.win_streak,
             "total_clicks": self.total_clicks,
@@ -351,6 +487,11 @@ class GameState:
             "loan_active": self.loan_active,
             "loan_debt": self.loan_debt,
             "last_symbols": self.last_symbols,
+            "total_winnings": self.total_winnings,
+            "biggest_win": self.biggest_win,
+            "jackpot_count": self.jackpot_count,
+            "prestige_count": self.prestige_count,
+            "prestige_mult": self.prestige_mult,
         }
         try:
             with open(SAVE_PATH, "w") as f:
@@ -368,6 +509,9 @@ class GameState:
                 data = json.load(f)
             state.balance = float(data.get("balance", 0.0))
             state.bet_index = int(data.get("bet_index", 0))
+            state.bet_all_in = bool(data.get("bet_all_in", False))
+            custom = data.get("bet_custom", None)
+            state.bet_custom = float(custom) if custom is not None else None
             state.upgrades = {k: int(v) for k, v in data.get("upgrades", {}).items()}
             state.win_streak = int(data.get("win_streak", 0))
             state.total_clicks = int(data.get("total_clicks", 0))
@@ -375,6 +519,11 @@ class GameState:
             state.loan_active = bool(data.get("loan_active", False))
             state.loan_debt = float(data.get("loan_debt", 0.0))
             state.last_symbols = data.get("last_symbols", ["🍒", "🍒", "🍒"])
+            state.total_winnings = float(data.get("total_winnings", 0.0))
+            state.biggest_win = float(data.get("biggest_win", 0.0))
+            state.jackpot_count = int(data.get("jackpot_count", 0))
+            state.prestige_count = int(data.get("prestige_count", 0))
+            state.prestige_mult = float(data.get("prestige_mult", 1.0))
         except Exception:
             pass
         return state

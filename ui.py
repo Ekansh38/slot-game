@@ -8,7 +8,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from game import SYMBOLS, GameState, CLICK_LEVELS, PASSIVE_LEVELS, SYNDICATE_PCT
+from game import (SYMBOLS, GameState, CLICK_LEVELS, PASSIVE_LEVELS,
+                  HYPER_CLICK_LEVELS, MEGA_PASSIVE_LEVELS, SYNDICATE_PCT,
+                  PRESTIGE_THRESHOLD)
 from upgrades import ALL_UPGRADES, upgrade_cost
 
 UPGRADES_PER_PAGE = 6
@@ -135,6 +137,16 @@ def _render_clicker(state: GameState) -> Panel:
     t.add_row("", "")
     t.add_row("Clicks:", f"{state.total_clicks:,}")
     t.add_row("Spins:", f"{state.total_spins:,}")
+    if state.total_winnings > 0:
+        t.add_row("Total won:", fmt(state.total_winnings))
+    if state.biggest_win > 0:
+        t.add_row("Best win:", fmt(state.biggest_win))
+    if state.jackpot_count > 0:
+        t.add_row("Jackpots:", Text(f"{state.jackpot_count}", style="bold bright_magenta"))
+
+    if state.storm_bonus_pending > 0:
+        t.add_row("STORM!", Text(f"+{fmt(state.storm_bonus_pending)}", style="bold bright_yellow"))
+        state.storm_bonus_pending = 0.0  # clear after display
 
     abilities: list[Text] = []
     if state.level("caffeine_rush") > 0:
@@ -157,7 +169,13 @@ def _render_clicker(state: GameState) -> Panel:
         else:
             abilities.append(Text("[2] Time Warp  READY", style="bright_cyan"))
 
-    controls = Text("\n[SPACE] Click\n[U]     Upgrades\n[M]     All-in bet\n[Q/ESC] Quit", style="white")
+    prestige_line = ""
+    if state.can_prestige():
+        prestige_line = "\n[P]     PRESTIGE! (reset for permanent ×1.5 all income)"
+    elif state.balance >= PRESTIGE_THRESHOLD * 0.05:
+        pct = min(100, int(state.balance / PRESTIGE_THRESHOLD * 100))
+        prestige_line = f"\n        Prestige at {fmt(PRESTIGE_THRESHOLD)} — {pct}% there"
+    controls = Text(f"\n[SPACE] Click\n[U]     Upgrades\n[M]     All-in bet\n[Q/ESC] Quit{prestige_line}", style="white")
 
     content: list[Any] = [t]
     if abilities:
@@ -181,21 +199,44 @@ def _upgrade_next_desc(uid: str, cur: int) -> str:
     if uid == "click_combo":
         return f"Next: +{nxt * 10}% per combo click (max 5×)"
     if uid == "lucky_charm":
-        return f"Next: ×{1.0 + nxt * 0.2:.1f} slot payouts"
+        return f"Next: ×{1.0 + nxt * 0.15:.2f} slot payouts"
     if uid == "diamond_magnet":
         return f"Next: diamond weight +{nxt * 3} (more 💎 hits)"
     if uid == "the_syndicate":
         pct = SYNDICATE_PCT[min(nxt, len(SYNDICATE_PCT) - 1)] * 100
         return f"Next: +{pct:.0f}% bonus on every win"
     if uid == "caffeine_rush":
-        return f"Next: 10× clicks for 15s, {60 // nxt}s cooldown"
+        cd = max(12, 60 // nxt)
+        return f"Next: 10× clicks for 15s, {cd}s cooldown"
     if uid == "time_warp":
-        return f"Next: 5× passive for 30s, {120 // nxt}s cooldown"
+        cd = max(24, 120 // nxt)
+        return f"Next: 5× passive for 30s, {cd}s cooldown"
+    if uid == "auto_spin":
+        intervals = [10, 8, 6, 4, 3]
+        ivl = intervals[min(nxt - 1, len(intervals) - 1)]
+        return f"Next: auto-spin every {ivl}s"
+    if uid == "double_down":
+        return f"Next: {nxt * 5}% chance to double any win"
+    if uid == "click_storm":
+        threshold = max(10, 50 - (nxt - 1) * 15)
+        return f"Next: storm bonus every {threshold} clicks"
     if uid == "hot_hands":
         threshold = max(1, 3 - nxt)
-        return f"Next: streak bonus activates at x{threshold} wins"
+        return f"Next: streak bonus at x{threshold} wins"
     if uid == "risk_engine":
         return f"Next: near-miss pays {nxt * 10}% of bet back"
+    if uid == "golden_reels":
+        return f"Next: all payouts ×{1.0 + nxt * 0.5:.1f}"
+    if uid == "wild_symbol":
+        return f"Next: {nxt * 8}% wild chance per spin"
+    if uid == "jackpot_boost":
+        return f"Next: 💎 jackpot ×{2 ** nxt:.0f} payout"
+    if uid == "hyper_fingers":
+        val = HYPER_CLICK_LEVELS[min(nxt, len(HYPER_CLICK_LEVELS) - 1)]
+        return f"Next: +{fmt(float(val))}/click (hyper tier)"
+    if uid == "mega_passive":
+        val = MEGA_PASSIVE_LEVELS[min(nxt, len(MEGA_PASSIVE_LEVELS) - 1)]
+        return f"Next: +{fmt(float(val))}/s (mega tier)"
     return ""
 
 
@@ -274,16 +315,28 @@ def _render_slots(state: GameState) -> Panel:
 
     reels = _render_reels(state)
 
+    _bet = state.last_bet_placed
+    _ratio_str = f"  ×{state.last_win / _bet:.1f}" if _bet > 0 and state.last_win > 0 else ""
+
     result_text = Text()
     if state.last_result == "jackpot":
         result_text.append("  JACKPOT!!!  ", style="bold bright_magenta")
         result_text.append(fmt(state.last_win), style="bold bright_magenta")
+        result_text.append(_ratio_str, style="bright_magenta")
+        if state.last_doubled:
+            result_text.append("  ×2 DOUBLED!", style="bold bright_yellow")
     elif state.last_result == "big_win":
         result_text.append("  BIG WIN!   ", style="bold bright_cyan")
         result_text.append(fmt(state.last_win), style="bold bright_cyan")
+        result_text.append(_ratio_str, style="cyan")
+        if state.last_doubled:
+            result_text.append("  ×2 DOUBLED!", style="bold bright_yellow")
     elif state.last_result == "win":
         result_text.append("  Won  ", style="bold bright_green")
         result_text.append(fmt(state.last_win), style="bold bright_green")
+        result_text.append(_ratio_str, style="green")
+        if state.last_doubled:
+            result_text.append("  ×2 DOUBLED!", style="bold bright_yellow")
     elif state.last_result == "near_miss":
         if state.last_win > 0:
             result_text.append("  So close...  ", style="bright_yellow")
@@ -328,6 +381,11 @@ def _render_slots(state: GameState) -> Panel:
         spin_hint = Text("  Spinning...", style="white")
     elif not bet_can_afford:
         spin_hint = Text("  Not enough funds", style="bright_red")
+    elif state.level("auto_spin") > 0:
+        _auto_ivls = [10.0, 8.0, 6.0, 4.0, 3.0]
+        _lv = min(state.level("auto_spin"), len(_auto_ivls))
+        _remaining = max(0.0, _auto_ivls[_lv - 1] - (now - state.auto_spin_timer))
+        spin_hint = Text(f"  [ENTER] Spin  |  Auto in {_remaining:.1f}s", style="white")
     else:
         spin_hint = Text("  [ENTER] Spin", style="white")
 
@@ -370,11 +428,15 @@ def _render_header(state: GameState) -> Panel:
     bal = Text()
     bal.append("Balance: ", style="white")
     bal.append(fmt(state.balance), style="bold bright_green")
+    if state.prestige_count > 0:
+        bal.append(f"  ✦ Prestige {state.prestige_count}  ×{state.prestige_mult:.2f}", style="bold bright_magenta")
 
     title = Text("SLOT GAME", style="bold bright_white")
 
     right = Text()
-    if state.win_streak >= 3:
+    if state.can_prestige():
+        right.append("[P] PRESTIGE READY!", style="bold bright_magenta")
+    elif state.win_streak >= 3:
         right.append(f"Streak x{state.win_streak}", style="bold bright_yellow")
 
     t.add_row(bal, title, right)

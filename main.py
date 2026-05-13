@@ -71,6 +71,9 @@ def _handle_key(key: str, state: GameState) -> bool:
         state.activate_ability("caffeine_rush")
     elif key == "2":
         state.activate_ability("time_warp")
+    elif key in ("p", "P"):
+        if not state.show_upgrades:
+            state.do_prestige()
 
     return False
 
